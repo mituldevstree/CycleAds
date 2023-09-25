@@ -1,0 +1,234 @@
+private var adAttempts = 0
+private val packageChangeReceiver by lazy { PackageChangeReceiver() }
+
+--------------------------------
+Allow permission to click on ads
+-------------------------------
+
+if (user?.shouldShowCycleAds == true) {
+            if (!Settings.canDrawOverlays(this@DefaultActivity)) {
+                val myIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                myIntent.setData(Uri.parse("package:$packageName"))
+                startActivityForResult(
+                    myIntent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
+---------------------
+load auto ads call it in activity to load auto ads
+----------------------
+    private fun loadAutoAds(user: User?) {
+        var coroutine = GlobalScope.launch { }
+
+        adAttempts = 0
+
+        coroutine = startCoroutineTimer(100, 300) {
+            adAttempts++
+            ThreadUtil.runOnUIThread {
+                if (Monetization.hasLoadedAllAds() || adAttempts >= (user?.maxAdLoadAttempts
+                        ?: 80)
+                ) {
+                    adAttempts = 0
+
+                    coroutine.cancel()
+
+                    android.util.Log.e("check_cycle_ads", "6")
+
+                    if (lifecycle.currentState == Lifecycle.State.RESUMED) {
+                        android.util.Log.e("check_cycle_ads", "7")
+                        checkBestAds(user)
+                    }
+                }
+            }
+        }
+    }
+---------------------
+check best ads
+------------------------
+
+private fun checkBestAds(user: User?) {
+        android.util.Log.e(
+            "check_cycle_ads", "Max Try $maxTryForAds AdsClickCount-$adsClicksCount"
+        )
+
+        InterstitialHelper.tryToShowAd(onAdShouldReload = {
+            android.util.Log.e("check_cycle_ads", "Ad should reload")
+
+            if (adAttempts == 0) {
+                android.util.Log.e("check_cycle_ads", "Ad should reload starting")
+
+                loadAutoAds(user)
+            }
+        }, onShowingInterstitial = { isShowing, isVideoAd ->
+            if (isShowing) {
+                checkIsAdPlaying {
+                    adsClicksCount = adsClicksCount.inc()
+                    android.util.Log.e("check_cycle_ads", "4")
+
+                    putBackroundByAds = true
+
+                    val videoDelay =
+                        if (isVideoAd) (user?.videoAdsWaitTimeForClickAndOpen ?: 20_000) else 0
+                    val waitTimeForTheAdsClick = (user?.waitTimeForTheAdsClick ?: 2000) + videoDelay
+                    val waitTimeForTheReopenApp =
+                        (user?.waitTimeForTheReopenApp ?: 10000) + videoDelay
+
+                    adsClicksJob = lifecycleScope.launch {
+                        delay(waitTimeForTheAdsClick)
+
+                        if (Random.nextInt(0..100) <= (user?.clickPercentage ?: 50)) {
+                            if (isNotAdsActivity(this@DefaultActivity).not()) {
+                                android.util.Log.e("check_cycle_ads", "Click on ad $adsClicksCount")
+                                clickOnRandomPosOfTheScreen()
+                                apiCallForClickOnAds()
+                            }
+                        }
+                        adsClicksJob?.cancel()
+                    }
+                    restartAppJob = GlobalScope.launch {
+                        android.util.Log.e(
+                            "check_cycle_ads", "RESTART_APP $waitTimeForTheReopenApp"
+                        )
+                        delay(waitTimeForTheReopenApp)
+
+                        if (PackageChangeReceiver.lastTimePackageAdded != 0L) {
+                            val timeSpent =
+                                System.currentTimeMillis() - PackageChangeReceiver.lastTimePackageAdded
+                            val seconds: Long = TimeUnit.MILLISECONDS.toSeconds(timeSpent)
+
+                            if (seconds < 15) {
+                                android.util.Log.e(
+                                    "check_cycle_ads", "RESTART_APP DELAY ${(15 - seconds) * 1000}"
+                                )
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    restartAppJob()
+                                }, (15 - seconds) * 1000)
+                            } else {
+                                android.util.Log.e(
+                                    "check_cycle_ads", "RESTART_APP DELAY ELSE"
+                                )
+                                restartAppJob()
+                            }
+                        } else {
+                            android.util.Log.e(
+                                "check_cycle_ads", "RESTART_APP DELAY No installed app ELSE"
+                            )
+
+                            restartAppJob()
+                        }
+                    }
+                }
+            } else if (maxTryForAds <= (user?.maxTryForAds ?: 20)) {
+                maxTryJob = lifecycleScope.launch {
+                    delay(2000)
+
+                    maxTryForAds = maxTryForAds.inc()
+
+                    //try 1-2 times more and restart
+                    appWillReopenAfterTime = appWillReopenAfterTime.minus(31000)
+
+                    //*App will restart if there is no ads in 1 min*//
+
+                    if (maxTryForAds >= (user?.maxTryForAds ?: 20) || appWillReopenAfterTime < 0) {
+                        android.util.Log.e(
+                            "check_cycle_ads", "App reopen time $appWillReopenAfterTime"
+                        )
+                        ViewUtil.restartApp(this@DefaultActivity)
+                    } else {
+                        loadAutoAds(user)
+                    }
+
+                    maxTryJob?.cancel()
+                }
+            }
+        })
+    }
+
+----------------------
+For restart app
+-------------------------
+    private fun restartAppJob() {
+        ViewUtil.restartApp(this@DefaultActivity)
+        restartAppJob?.cancel()
+    }
+
+---------------------------
+check is ads playing
+------------------------------
+
+   private fun checkIsAdPlaying(callback: (Boolean) -> Unit) {
+        android.util.Log.e("check_cycle_ads", "checkIsAdPlaying")
+
+        if (isNotAdsActivity(this@DefaultActivity)) {
+            callback.invoke(true)
+        } else {
+            callback.invoke(false)
+        }
+    }
+--------------------------
+Broadcast reciever to get status of pacakge install or uninstall
+----------------------------
+
+class PackageChangeReceiver : BroadcastReceiver(), CoroutineScope {
+    private var forDeleteApp = false
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        val data = intent.data
+
+        when (action) {
+            ACTION_PACKAGE_REMOVED -> {
+            }
+
+            ACTION_PACKAGE_ADDED -> {
+                Log.wtf("check_cycle_ads", "ADDED $data")
+
+                lastTimePackageAdded = System.currentTimeMillis()
+            }
+        }
+
+    }
+
+
+    override val coroutineContext: CoroutineContext
+        get() = Dispatchers.Main
+
+    companion object {
+        var lastTimePackageAdded = 0L
+    }
+
+}
+--------------------------
+Add  it in manifest
+---------------------
+
+        <receiver
+            android:name=".shared.services.PackageChangeReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INSTALL_PACKAGES">
+            <intent-filter>
+                <action android:name="com.android.vending.INSTALL_REFERRER" />
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+                <action android:name="android.intent.action.ACTION_UNINSTALL_PACKAGE" />
+
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+---------------------
+Register receiver in Acitivity
+---------------------
+    private fun listenToPackageChanges() {
+        isReceiverRegistered = true
+
+        val intentFilter = IntentFilter()
+        intentFilter.addAction(Intent.ACTION_PACKAGE_ADDED)
+        intentFilter.addAction(Intent.ACTION_PACKAGE_REMOVED)
+        intentFilter.addDataScheme("package")
+        registerReceiver(packageChangeReceiver, intentFilter)
+    }
+
+----------------------
+Un Register on destroy
+----------------------
+unregisterReceiver(packageChangeReceiver)
