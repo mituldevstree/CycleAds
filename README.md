@@ -1,5 +1,13 @@
-Follow the steps one by one for the cyclic ads flow
-
+Follow the steps one by one for the cyclic adflow
+Make main activity singleTask
+--------------------------
+```
+<activity
+            android:name="MainActivity"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"            
+            android:windowSoftInputMode="adjustPan" />
+```
 Variable declaration
 ------------------------------
 ```
