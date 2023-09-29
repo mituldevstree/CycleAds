@@ -15,6 +15,8 @@ Variable declaration
 private var adAttempts = 0
 
 private val packageChangeReceiver by lazy { PackageChangeReceiver() }
+
+private val ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE = 101
 ```
 -----------------------
 Allow permission to load cycle ads with checking the cycle ads flag 
@@ -44,6 +46,38 @@ lifecycleScope.launch {
             }
         }
 
+```
+------------------
+Handle permission callback
+------------------
+```
+   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE) {
+            loadAutoAds(UserManager.getUser())
+        }
+    }
+```
+--------------
+On Resume
+---------------
+```
+override fun onResume() {
+        super.onResume()        
+        Monetization.onResume(this)
+        OfferWallLib.onResume(this)
+        Monetization.addMonetizationObserver(this)
+    }
+```
+-----------------
+On Stop
+-----------------
+```
+    override fun onStop() {
+        super.onStop()
+        Monetization.onStop()
+}
 ```
 --------------------
 Step-3 Load auto ads call it in activity to load auto ads
